@@ -98,7 +98,9 @@
     <Compile Include="AboutWindow.xaml.cs">
       <DependentUpon>AboutWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="CscBinarySerializer.cs" />
     <Compile Include="DisplayConfigManager.cs" />
+    <Compile Include="DisplayIdHash.cs" />
     <Compile Include="LstarEOTF.cs" />
     <Compile Include="Lut16.cs" />
     <Compile Include="DoubleToneCurve.cs" />

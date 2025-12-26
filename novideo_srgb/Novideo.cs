@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using EDIDParser;
@@ -102,6 +103,18 @@ namespace novideo_srgb
             public float[,] matrix1;
             public float[,] matrix2;
         }
+        
+        internal sealed class CscBinaryModel
+        {
+            public uint ContentColorSpace;
+            public uint MonitorColorSpace;
+
+            public bool UseMatrix1;
+            public float[] Matrix1; // length = 12
+
+            public bool UseMatrix2;
+            public float[] Matrix2; // length = 12
+        }
 
         public static ColorSpaceConversion GetColorSpaceConversion(GPUOutput output)
         {
@@ -111,7 +124,48 @@ namespace novideo_srgb
             var status = NvAPI_GPU_GetColorSpaceConversion(displayId, ref csc);
             if (status != 0)
             {
-                throw new Exception("NvAPI_GPU_GetColorSpaceConversion failed with error code " + status);
+                return GetColorSpaceConversionCached(output);
+            } else {
+                var model = new CscBinaryModel
+                {
+                    ContentColorSpace = csc.contentColorSpace,
+                    MonitorColorSpace = csc.monitorColorSpace,
+                    UseMatrix1 = csc.useMatrix1 == 1,
+                    UseMatrix2 = csc.useMatrix2 == 1
+                };
+
+                unsafe
+                {
+                    if (model.UseMatrix1)
+                    {
+                        model.Matrix1 = new float[12];
+                        for (int i = 0; i < 12; i++)
+                        {
+                            model.Matrix1[i] = csc.matrix1[i];
+                        }
+                    }
+
+                    if (model.UseMatrix2)
+                    {
+                        model.Matrix2 = new float[12];
+                        for (int i = 0; i < 12; i++)
+                        {
+                            model.Matrix2[i] = csc.matrix2[i];
+                        }
+                    }
+                }
+
+                var cacheDir = Path.Combine(
+                    AppContext.BaseDirectory,
+                    "NvCscCache");
+
+                Directory.CreateDirectory(cacheDir);
+
+                var cachePath = Path.Combine(
+                    cacheDir,
+                    DisplayIdHash.GetFilename(displayId));
+
+                CscBinarySerializer.Save(cachePath, model);
             }
 
             var result = new ColorSpaceConversion
@@ -138,6 +192,49 @@ namespace novideo_srgb
                         }
                     }
                 }
+            }
+
+            return result;
+        }
+
+        public static ColorSpaceConversion GetColorSpaceConversionCached(GPUOutput output)
+        {
+            var displayId = output.PhysicalGPU
+            .GetDisplayDeviceByOutput(output)
+            .DisplayId;
+
+            var cacheDir = Path.Combine(
+                AppContext.BaseDirectory,
+                "NvCscCache");
+
+            Directory.CreateDirectory(cacheDir);
+
+            var cachePath = Path.Combine(
+                cacheDir,
+                DisplayIdHash.GetFilename(displayId));
+
+            var csc = new Csc { version = 0x1007C };
+
+            var model = CscBinarySerializer.Load(cachePath);
+
+            var result = new ColorSpaceConversion
+            {
+                contentColorSpace = model.ContentColorSpace,
+                monitorColorSpace = model.MonitorColorSpace
+            };
+
+            if (model.UseMatrix1)
+            {
+                result.matrix1 = new float[3, 4];
+                for (int i = 0; i < 12; i++)
+                    result.matrix1[i / 4, i % 4] = model.Matrix1[i];
+            }
+
+            if (model.UseMatrix2)
+            {
+                result.matrix2 = new float[3, 4];
+                for (int i = 0; i < 12; i++)
+                    result.matrix2[i / 4, i % 4] = model.Matrix2[i];
             }
 
             return result;
